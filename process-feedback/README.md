@@ -84,3 +84,52 @@ razvan@drone:~/feedback.git/process-feedback$ ls so2/
 ```
 
 The resulting file `SO2 2013-2014 - Feedback studenti - neprelucrat-prelucrat.xls` shows all numerical results for teachers and assistants.
+
+## Text Categorization (WIP)
+
+In addition to the numerical processing above, a text categorization module is being developed to automatically analyze the qualitative (free-text) feedback fields (`positive`, `negative`, `other`).
+
+### How It Works
+
+Feedback texts are categorized into 9 labels:
+
+| Category | What it detects |
+|----------|----------------|
+| `profesor` | Comments about the course lecturer |
+| `asistent` | Comments about the teaching assistant |
+| `curs` | Aspects related to the course/lectures |
+| `laborator` | Aspects related to labs/seminars |
+| `teme` | Homework/projects/deadlines |
+| `examen` | Exams/tests/grades/grading criteria |
+| `materiale` | Slides/documentation/resources |
+| `pozitiv` | Positive sentiment |
+| `negativ` | Negative sentiment |
+
+The system uses a **two-level approach**:
+
+1. **Local keyword matching** (`text_categorizer.py`) — fast, zero-cost classification using a keyword database (`keywords_db.json`). Handles ~70-80% of texts.
+2. **LLM fallback** (`llm_client.py`) — sends uncategorized texts to Google Gemini API for context-aware classification. Also suggests new keywords to improve future local matching.
+
+### New & Modified Files
+
+- `keywords_db.json` — keyword database per category (editable)
+- `text_categorizer.py` — local keyword-based categorizer
+- `llm_client.py` — Gemini API client (requires `.env` with `GEMINI_API_KEY`)
+- `test_categorizer.py` — tests for the categorization module
+- `processor.py` — contains `TODO` comments where the new categorization logic will be integrated into the main pipeline
+
+### Setup
+
+To use the LLM fallback, create a `.env` file in `process-feedback/`:
+
+```
+GEMINI_API_KEY=your_api_key_here
+```
+
+Install the required packages:
+
+```
+pip install google-genai python-dotenv
+```
+
+The local keyword matching works without any extra setup.

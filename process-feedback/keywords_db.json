@@ -1,0 +1,11 @@
+{
+    "profesor": ["profesor", "profa", "titular"],
+    "asistent": ["asistent", "asistenta", "laborant"],
+    "curs": ["curs", "cursul", "prezentare"],
+    "laborator": ["laborator", "lab", "seminar"],
+    "teme": ["tema", "teme", "proiect"],
+    "examen": ["examen", "test", "partial"],
+    "materiale": ["material", "slide", "carte"],
+    "pozitiv": ["bine", "super", "excelent"],
+    "negativ": ["rau", "prost", "plictisitor"]
+}
