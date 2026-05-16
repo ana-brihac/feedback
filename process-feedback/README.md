@@ -84,3 +84,171 @@ razvan@drone:~/feedback.git/process-feedback$ ls so2/
 ```
 
 The resulting file `SO2 2013-2014 - Feedback studenti - neprelucrat-prelucrat.xls` shows all numerical results for teachers and assistants.
+
+## Text Categorization (WIP)
+
+In addition to the numerical processing above, a text categorization module is being developed to automatically analyze the qualitative (free-text) feedback fields (`positive`, `negative`, `other`).
+
+### How It Works
+
+Feedback texts are categorized into 9 labels:
+
+| Category | What it detects |
+|----------|----------------|
+| `profesor` | Comments about the course lecturer |
+| `asistent` | Comments about the teaching assistant |
+| `curs` | Aspects related to the course/lectures |
+| `laborator` | Aspects related to labs/seminars |
+| `teme` | Homework/projects/deadlines |
+| `examen` | Exams/tests/grades/grading criteria |
+| `materiale` | Slides/documentation/resources |
+| `pozitiv` | Positive sentiment |
+| `negativ` | Negative sentiment |
+
+The system uses a **two-level approach**:
+
+1. **Local keyword matching** (`text_categorizer.py`) — fast, zero-cost classification using a keyword database (`keywords_db.json`). Handles ~70-80% of texts.
+2. **LLM fallback** (`llm_client.py`) — sends uncategorized texts to Google Gemini API for context-aware classification. Also suggests new keywords to improve future local matching.
+
+### New & Modified Files
+
+- `keywords_db.json` — keyword database per category (editable)
+- `text_categorizer.py` — local keyword-based categorizer
+- `llm_client.py` — Gemini API client (requires `.env` with `GEMINI_API_KEY`)
+- `test_categorizer.py` — tests for the categorization module
+- `processor.py` — contains `TODO` comments where the new categorization logic will be integrated into the main pipeline
+
+### Setup
+
+To use the LLM fallback, create a `.env` file in `process-feedback/`:
+
+```
+GEMINI_API_KEY=your_api_key_here
+```
+
+Install the required packages:
+
+```
+pip install google-genai python-dotenv
+```
+
+The local keyword matching works without any extra setup.
+
+---
+
+## Project Summary
+
+This project automates the processing and analysis of student feedback from [curs.pub.ro](http://curs.pub.ro) (Moodle-based platform at University POLITEHNICA of Bucharest). It consists of two main components:
+
+1. **Numerical feedback processing** — Reads raw feedback spreadsheets (`.xls`/`.csv`), computes per-course, per-professor, and per-assistant averages and statistics, and exports the results as processed spreadsheets.
+
+2. **Text categorization** — Automatically classifies free-text student comments (positive, negative, suggestions) into 9 categories (`profesor`, `asistent`, `curs`, `laborator`, `teme`, `examen`, `materiale`, `pozitiv`, `negativ`) using a two-level approach:
+   - **Local keyword matching** (`text_categorizer.py`) — Fast, zero-cost classification using a keyword database (`keywords_db.json`). Handles the majority of texts.
+   - **LLM fallback** (`llm_client.py`) — Sends remaining uncategorized texts to the Google Gemini API for context-aware classification. Also suggests new keywords to improve future local matching.
+
+### How to Run
+
+#### 1. Setup the virtual environment
+
+The project needs a Python virtual environment to install dependencies without breaking the system Python.
+
+```bash
+cd process-feedback/
+
+# Create the virtual environment (only once)
+python3 -m venv venv
+
+# Activate it
+source venv/bin/activate
+
+# Install required packages
+pip install -r requirements.txt
+```
+
+> **Note:** Every time you open a new terminal, you need to activate the venv again with `source venv/bin/activate`, or use `./venv/bin/python3` directly.
+
+#### 2. Configure the Gemini API key (optional)
+
+If you want the LLM fallback (Gemini) to work, create a `.env` file:
+
+```bash
+# In process-feedback/ directory
+echo "GEMINI_API_KEY=your_api_key_here" > .env
+```
+
+The `.env` file is already in `.gitignore`, so it won't be committed.
+
+Without a Gemini API key, the system works using only the local keyword matching — the Gemini tests will be skipped automatically.
+
+#### 3. Run the tests
+
+```bash
+cd process-feedback/
+
+# Option A: If venv is activated
+python3 test_categorizer.py
+
+# Option B: Without activating venv
+./venv/bin/python3 test_categorizer.py
+```
+
+#### 4. Verify the output
+
+If everything works, you should see output like this:
+
+```
+Running categorizer tests...
+
+  Testing categorize_text()...
+    OK: 'Profesorul explica foarte bine' ->  ['profesor', 'pozitiv']
+    OK: 'Laboratorul e prost organizat' ->  ['laborator', 'negativ']
+    OK: 'Examenul a fost greu' ->  ['examen', 'negativ']
+    OK: Empty text ->  []
+    OK: Text with diacritics ->  ['profesor', 'curs', 'pozitiv']
+  PASSED: categorize_text()
+
+  Testing categorize_all_texts()...
+    OK: All texts accounted for (categorized + uncategorized)
+    OK: Gibberish text is uncategorized
+    OK: Stats are correct -> {...}
+  PASSED: categorize_all_texts()
+
+  Testing update_keywords()...
+    OK: New words added successfully
+    OK: No duplicates created
+    OK: Original DB restored
+  PASSED: update_keywords()
+
+  Testing analyze_with_gemini()...
+    OK: Response format is correct          # <-- only if .env has API key
+  PASSED: analyze_with_gemini()
+
+  Testing full flow...
+  PASSED: full flow
+
+All tests passed (or skipped).
+```
+
+> If `analyze_with_gemini` shows `SKIPPED`, that's normal — it means the API key is missing or `python-dotenv` is not installed.
+
+#### 5. Numerical processing (spreadsheets)
+
+This is the older numerical pipeline — not related to text categorization. Replace `data/` with your actual data folder:
+
+```bash
+cd process-feedback/
+mkdir data/                                # Create a folder for your data
+cp /path/to/feedback.xls data/             # Copy the raw spreadsheet there
+./xls2csv.sh data/                         # Convert .xls to .csv
+./process_feedback.py data/                # Process and generate results
+./csv2xlsx data/                           # Convert results to .xlsx
+```
+
+#### 6. Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| `pip install` fails with "externally-managed-environment" | Use a venv (see step 1) |
+| `analyze_with_gemini` is SKIPPED | Create `.env` with `GEMINI_API_KEY=...` and install `python-dotenv` |
+| `ModuleNotFoundError: google.genai` | Run `pip install google-genai` inside the venv |
+| `GEMINI_API_KEY not found` | Check that `.env` exists in `process-feedback/` and contains the key |

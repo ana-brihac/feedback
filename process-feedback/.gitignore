@@ -1,0 +1,4 @@
+/processor.conf
+.env
+venv/
+__pycache__
