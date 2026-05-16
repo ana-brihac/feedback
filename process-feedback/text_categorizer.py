@@ -12,7 +12,9 @@ Categories: profesor, asistent, curs, laborator, teme,
 
 import json
 import os
+import string
 import unicodedata
+from collections import Counter
 
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "keywords_db.json")
@@ -221,3 +223,51 @@ def update_keywords(new_keywords):
 
     # Save the updated database back to the file
     save_keywords(db)
+
+
+def print_top_frequent_words(texts, top_n=10):
+    """Print the top N most frequent words from a list of feedback texts.
+
+    Cleans the text by lowercasing, removing punctuation and diacritics,
+    then filters out common Romanian stop words before counting.
+
+    Args:
+        texts: List of feedback text strings.
+        top_n: Number of top words to display (default 10).
+    """
+    if not texts:
+        return
+
+    # Common Romanian stop words to exclude
+    stop_words = {
+        "și", "la", "o", "un", "de", "că", "să", "cu", "din", "pe",
+        "pentru", "este", "sunt", "fost", "mai", "am", "ai", "au",
+        "tot", "dar"
+    }
+
+    # Normalize stop words (remove diacritics) so they match cleaned text
+    clean_stop_words = {remove_diacritics(w) for w in stop_words}
+
+    all_words = []
+    for text in texts:
+        # Lowercase and remove diacritics
+        cleaned = remove_diacritics(text.lower())
+        # Remove punctuation
+        cleaned = cleaned.translate(str.maketrans("", "", string.punctuation))
+        # Split into words and filter stop words
+        words = [
+            word for word in cleaned.split()
+            if word and word not in clean_stop_words
+        ]
+        all_words.extend(words)
+
+    if not all_words:
+        return
+
+    word_counts = Counter(all_words)
+    top_words = word_counts.most_common(top_n)
+
+    print(f"\n=== Top {top_n} Most Frequent Words in 'Other' Feedback ===")
+    for rank, (word, count) in enumerate(top_words, start=1):
+        print(f"  {rank:>2}. {word:<20} ({count})")
+    print()

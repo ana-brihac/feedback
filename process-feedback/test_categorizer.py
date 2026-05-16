@@ -15,6 +15,7 @@ Tests for:
 
 import os
 import sys
+import io
 import json
 import copy
 
@@ -30,7 +31,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from text_categorizer import (
     categorize_text, categorize_all_texts, update_keywords,
-    load_keywords, save_keywords, DB_PATH
+    load_keywords, save_keywords, DB_PATH,
+    print_top_frequent_words
 )
 from llm_client import analyze_with_gemini
 
@@ -387,6 +389,131 @@ def test_analyze_with_gemini():
     print("  PASSED: analyze_with_gemini()")
 
 
+def test_print_top_frequent_words():
+    """Test word-frequency analysis for 'other' feedback texts.
+
+    Captures stdout to verify output format, stop-word filtering,
+    punctuation removal, diacritics normalization, and edge cases.
+    """
+    print("  Testing print_top_frequent_words()...")
+
+    # Test 1: Empty list should return immediately with no output
+    captured = io.StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = captured
+    print_top_frequent_words([])
+    sys.stdout = old_stdout
+    assert captured.getvalue() == "", \
+        f"Expected no output for empty list, got '{captured.getvalue()}'"
+    print("    OK: Empty list produces no output")
+
+    # Test 2: Basic word counting with known frequencies
+    texts = [
+        "cursul este foarte bun",
+        "cursul a fost interesant",
+        "laborator bun si interesant",
+    ]
+    captured = io.StringIO()
+    sys.stdout = captured
+    print_top_frequent_words(texts, top_n=3)
+    sys.stdout = old_stdout
+    output = captured.getvalue()
+    assert "Top 3 Most Frequent Words" in output, \
+        f"Expected header with top_n=3, got: {output}"
+    # 'cursul' appears twice, should be in the output
+    assert "cursul" in output, f"Expected 'cursul' in output, got: {output}"
+    print("    OK: Basic counting and header format correct")
+
+    # Test 3: Stop words should be filtered out
+    texts_with_stopwords = [
+        "de la curs este foarte bine pentru studenti",
+        "cu din pe și că să un o",
+    ]
+    captured = io.StringIO()
+    sys.stdout = captured
+    print_top_frequent_words(texts_with_stopwords, top_n=5)
+    sys.stdout = old_stdout
+    output = captured.getvalue()
+    # These stop words should NOT appear as ranked words in the output lines
+    for stop in ["de", "la", "este", "pentru", "cu", "din", "pe"]:
+        # Check that stop words don't appear as a ranked entry (e.g. " 1. de ")
+        # They might appear in the header text, so check the numbered lines
+        lines = [l.strip() for l in output.split("\n") if l.strip().startswith(("1.", "2.", "3.", "4.", "5."))]
+        for line in lines:
+            # Extract the word (format: "  1. word               (count)")
+            word_in_line = line.split(".", 1)[1].split("(")[0].strip()
+            assert word_in_line != stop, \
+                f"Stop word '{stop}' should be filtered, but found in: {line}"
+    print("    OK: Romanian stop words are filtered out")
+
+    # Test 4: Punctuation should be removed
+    texts_with_punct = [
+        "cursul, bun! laborator... excelent?",
+        "cursul: foarte bun; da!",
+    ]
+    captured = io.StringIO()
+    sys.stdout = captured
+    print_top_frequent_words(texts_with_punct, top_n=5)
+    sys.stdout = old_stdout
+    output = captured.getvalue()
+    # 'cursul' should appear without punctuation attached
+    assert "cursul" in output, \
+        f"Expected 'cursul' (punctuation removed), got: {output}"
+    # No punctuation characters in the ranked word entries
+    lines = [l for l in output.split("\n") if l.strip().startswith(("1.", "2.", "3.", "4.", "5."))]
+    for line in lines:
+        word_in_line = line.split(".", 1)[1].split("(")[0].strip()
+        assert word_in_line.isalpha(), \
+            f"Word should be clean alpha, got '{word_in_line}' in: {line}"
+    print("    OK: Punctuation is removed correctly")
+
+    # Test 5: Diacritics should be normalized
+    texts_with_diacritics = [
+        "profesoara predă foarte bine",
+        "profesoara e minunată",
+    ]
+    captured = io.StringIO()
+    sys.stdout = captured
+    print_top_frequent_words(texts_with_diacritics, top_n=3)
+    sys.stdout = old_stdout
+    output = captured.getvalue()
+    # 'profesoara' should appear (diacritics-free form)
+    assert "profesoara" in output, \
+        f"Expected 'profesoara' (diacritics removed), got: {output}"
+    print("    OK: Diacritics are normalized correctly")
+
+    # Test 6: top_n parameter is respected
+    texts_many = [
+        "alfa beta gamma delta epsilon",
+        "alfa beta gamma delta",
+        "alfa beta gamma",
+        "alfa beta",
+        "alfa",
+    ]
+    captured = io.StringIO()
+    sys.stdout = captured
+    print_top_frequent_words(texts_many, top_n=2)
+    sys.stdout = old_stdout
+    output = captured.getvalue()
+    assert "Top 2 Most Frequent Words" in output
+    # Should have exactly 2 numbered entries
+    ranked_lines = [l for l in output.split("\n") if l.strip() and l.strip()[0].isdigit()]
+    assert len(ranked_lines) == 2, \
+        f"Expected 2 ranked entries for top_n=2, got {len(ranked_lines)}"
+    print("    OK: top_n parameter limits output correctly")
+
+    # Test 7: List with only stop words should produce no output
+    captured = io.StringIO()
+    sys.stdout = captured
+    print_top_frequent_words(["de la cu din pe și că să"])
+    sys.stdout = old_stdout
+    assert captured.getvalue() == "", \
+        f"Expected no output for stop-words-only input, got '{captured.getvalue()}'"
+    print("    OK: Stop-words-only input produces no output")
+
+    print("  PASSED: print_top_frequent_words()")
+
+
 def test_full_flow():
     """Test the complete flow: local -> uncategorized -> Gemini -> update.
 
@@ -560,6 +687,8 @@ if __name__ == "__main__":
     test_categorize_all_texts()
     print()
     test_update_keywords()
+    print()
+    test_print_top_frequent_words()
     print()
     test_analyze_with_gemini()
     print()

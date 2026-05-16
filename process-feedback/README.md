@@ -105,10 +105,11 @@ Feedback texts are categorized into 9 labels:
 | `pozitiv` | Positive sentiment |
 | `negativ` | Negative sentiment |
 
-The system uses a **two-level approach**:
+The system uses a **three-step approach**:
 
-1. **Local keyword matching** (`text_categorizer.py`) — fast, zero-cost classification using a keyword database (`keywords_db.json`). Handles ~70-80% of texts.
-2. **LLM fallback** (`llm_client.py`) — sends uncategorized texts to Google Gemini API for context-aware classification. Also suggests new keywords to improve future local matching.
+1. **Word-frequency mining** — Before any classification occurs, the system automatically performs a local word-frequency analysis on the `other` feedback field (via `print_top_frequent_words`). This prints the most common words to the terminal, helping users quickly discover prominent discussion topics and easily identify new keywords to add to `keywords_db.json`.
+2. **Local keyword matching** (`text_categorizer.py`) — fast, zero-cost classification using a keyword database (`keywords_db.json`). Handles ~70-80% of texts.
+3. **LLM fallback** (`llm_client.py`) — sends uncategorized texts to Google Gemini API for context-aware classification. Also suggests new keywords to improve future local matching.
 
 ### Negation & Conflict Detection
 
@@ -127,10 +128,33 @@ The local keyword matcher includes two safeguards to avoid misclassification:
 | Conflict (no topics) | *"E super dar și groaznic"* | → `[]` (forced to LLM) |
 | Normal | *"Profesorul explică foarte bine"* | → `['profesor', 'pozitiv']` (unchanged) |
 
+### Text Mining — Word Frequency Analysis
+
+The `print_top_frequent_words(texts, top_n=10)` function in `text_categorizer.py` provides a quick overview of the most common words in the *other* feedback field.
+
+**How it works:**
+
+1. Lowercases and removes diacritics (reuses `remove_diacritics`).
+2. Strips punctuation using `string.punctuation`.
+3. Filters out common Romanian stop words (`și`, `la`, `de`, `că`, `pentru`, etc.).
+4. Counts remaining words with `collections.Counter` and prints a ranked list.
+
+**Example output:**
+
+```
+=== Top 10 Most Frequent Words in 'Other' Feedback ===
+   1. cursul               (42)
+   2. laborator             (37)
+   3. profesorul            (28)
+   ...
+```
+
+> Pass an empty list and the function returns immediately without printing anything.
+
 ### New & Modified Files
 
 - `keywords_db.json` — keyword database per category (editable)
-- `text_categorizer.py` — local keyword-based categorizer (with negation & conflict detection)
+- `text_categorizer.py` — local keyword-based categorizer (with negation & conflict detection) and word-frequency analysis (`print_top_frequent_words`)
 - `llm_client.py` — Gemini API client (requires `.env` with `GEMINI_API_KEY`)
 - `test_categorizer.py` — tests for the categorization module (includes negation & conflict tests)
 - `processor.py` — contains `TODO` comments where the new categorization logic will be integrated into the main pipeline

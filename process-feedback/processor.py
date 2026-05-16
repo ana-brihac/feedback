@@ -9,7 +9,7 @@ import re
 import statistics
 from anytree import NodeMixin, RenderTree, PreOrderIter
 
-from text_categorizer import categorize_all_texts, update_keywords
+from text_categorizer import categorize_all_texts, update_keywords, print_top_frequent_words
 from llm_client import analyze_with_gemini
 
 
@@ -446,6 +446,9 @@ class FeedbackContent():
                 "stats": {}
             }
             return
+
+        # Step 0: Print word-frequency analysis for the 'other' field
+        print_top_frequent_words(texts)
 
         # Step 1: Run local keyword-based categorization
         local_result = categorize_all_texts(texts)
