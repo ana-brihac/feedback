@@ -67,8 +67,33 @@ def remove_diacritics(text):
     return result
 
 
+def _contains_negation(clean_text):
+    """Check if text contains the Romanian negation word 'nu'.
+
+    Uses word-boundary checking so we don't false-match words
+    that merely contain 'nu' (e.g., 'numar', 'anunt', 'minunat').
+
+    Args:
+        clean_text: Lowercased, diacritics-removed text.
+
+    Returns:
+        bool: True if 'nu' appears as a standalone word.
+    """
+    words = clean_text.split()
+    return "nu" in words
+
+
 def categorize_text(text, keywords_db=None):
     """Categorize a single feedback text using keyword matching.
+
+    Includes two safeguards before trusting local results:
+      1. Negation detection  – if 'nu' appears as a standalone word,
+         skip local categorization entirely (return empty list) so the
+         text is forwarded to the LLM for contextual analysis.
+      2. Conflict detection  – if the local scan finds BOTH 'pozitiv'
+         and 'negativ', drop the sentiment categories (keep topic
+         categories like profesor, curs, etc.) so the LLM can
+         arbitrate the sentiment.
 
     Args:
         text: Raw feedback text string.
@@ -76,6 +101,8 @@ def categorize_text(text, keywords_db=None):
 
     Returns:
         list: Categories matched (e.g., ['profesor', 'pozitiv']).
+              Returns empty list when negation is detected or when
+              only conflicting sentiment categories were found.
     """
     # If no text or empty text, return empty list
     if not text or not text.strip():
@@ -88,6 +115,13 @@ def categorize_text(text, keywords_db=None):
     # Normalize the text: lowercase and remove diacritics
     clean_text = remove_diacritics(text.lower())
 
+    # --- Safeguard 1: Negation detection ---
+    # If the word 'nu' is present, local keyword matching is unreliable
+    # because it can't understand context (e.g., 'nu preda bine').
+    # Force the text to be uncategorized so the LLM handles it.
+    if _contains_negation(clean_text):
+        return []
+
     # Check each category for keyword matches
     matched_categories = []
     for category, keywords in keywords_db.items():
@@ -99,11 +133,29 @@ def categorize_text(text, keywords_db=None):
                 matched_categories.append(category)
                 break  # One match per category is enough
 
+    # --- Safeguard 2: Conflict detection ---
+    # If both 'pozitiv' and 'negativ' were matched, the local algorithm
+    # can't decide the true sentiment.  Drop only the sentiment categories
+    # and keep any topic categories (profesor, curs, etc.) that are still
+    # useful.  If no topic categories remain, the text becomes uncategorized.
+    has_pozitiv = "pozitiv" in matched_categories
+    has_negativ = "negativ" in matched_categories
+
+    if has_pozitiv and has_negativ:
+        matched_categories = [
+            cat for cat in matched_categories
+            if cat not in ("pozitiv", "negativ")
+        ]
+
     return matched_categories
 
 
 def categorize_all_texts(texts, keywords_db=None):
     """Categorize a list of feedback texts.
+
+    Texts that are not categorized locally (empty category list) are
+    added to the 'uncategorized' list for LLM fallback processing.
+    This includes texts skipped due to negation or sentiment conflict.
 
     Args:
         texts: List of feedback text strings.
@@ -126,7 +178,7 @@ def categorize_all_texts(texts, keywords_db=None):
     stats = {cat: 0 for cat in keywords_db.keys()}
 
     for text in texts:
-        # Categorize this text
+        # Categorize this text (negation/conflict checks happen inside)
         categories = categorize_text(text, keywords_db)
 
         if categories:
@@ -136,7 +188,8 @@ def categorize_all_texts(texts, keywords_db=None):
             for cat in categories:
                 stats[cat] += 1
         else:
-            # No categories found - text is uncategorized
+            # No categories found (or negation/conflict detected)
+            # Text goes to uncategorized list for LLM fallback
             uncategorized.append(text)
 
     return {

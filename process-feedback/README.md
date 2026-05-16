@@ -110,12 +110,29 @@ The system uses a **two-level approach**:
 1. **Local keyword matching** (`text_categorizer.py`) — fast, zero-cost classification using a keyword database (`keywords_db.json`). Handles ~70-80% of texts.
 2. **LLM fallback** (`llm_client.py`) — sends uncategorized texts to Google Gemini API for context-aware classification. Also suggests new keywords to improve future local matching.
 
+### Negation & Conflict Detection
+
+The local keyword matcher includes two safeguards to avoid misclassification:
+
+**1. Negation detection** — If the Romanian negation word `nu` appears as a standalone word in the text (e.g., *"nu predă bine"*, *"nu e pregătit"*), the local categorizer skips the text entirely and sends it to the LLM for contextual analysis. This prevents false positives like matching `bine` ("well") as `pozitiv` when the student actually wrote *"nu predă bine"* ("doesn't teach well").
+
+> Word-boundary checking is used so words that merely *contain* `nu` (e.g., `număr`, `anunț`, `minunat`) do **not** trigger this safeguard.
+
+**2. Conflict detection** — If the local scan finds **both** `pozitiv` and `negativ` keywords in the same text, it drops both sentiment categories (since the algorithm can't determine the true sentiment) and keeps only the topic categories (`profesor`, `curs`, `laborator`, etc.). If no topic categories remain after dropping sentiments, the text becomes uncategorized and goes to the LLM.
+
+| Scenario | Example | Behavior |
+|----------|---------|----------|
+| Negation | *"Profesorul nu explică bine"* | → `[]` (forced to LLM) |
+| Conflict (with topics) | *"Cursul e bine dar examenul e prost"* | → `['curs', 'examen']` (sentiments dropped) |
+| Conflict (no topics) | *"E super dar și groaznic"* | → `[]` (forced to LLM) |
+| Normal | *"Profesorul explică foarte bine"* | → `['profesor', 'pozitiv']` (unchanged) |
+
 ### New & Modified Files
 
 - `keywords_db.json` — keyword database per category (editable)
-- `text_categorizer.py` — local keyword-based categorizer
+- `text_categorizer.py` — local keyword-based categorizer (with negation & conflict detection)
 - `llm_client.py` — Gemini API client (requires `.env` with `GEMINI_API_KEY`)
-- `test_categorizer.py` — tests for the categorization module
+- `test_categorizer.py` — tests for the categorization module (includes negation & conflict tests)
 - `processor.py` — contains `TODO` comments where the new categorization logic will be integrated into the main pipeline
 
 ### Setup
@@ -199,31 +216,60 @@ If everything works, you should see output like this:
 ```
 Running categorizer tests...
 
-  Testing categorize_text()...
-    OK: 'Profesorul explica foarte bine' ->  ['profesor', 'pozitiv']
-    OK: 'Laboratorul e prost organizat' ->  ['laborator', 'negativ']
-    OK: 'Examenul a fost greu' ->  ['examen', 'negativ']
-    OK: Empty text ->  []
-    OK: Text with diacritics ->  ['profesor', 'curs', 'pozitiv']
-  PASSED: categorize_text()
+  Testing categorize_text() — simple texts...
+    OK: 'Profesorul explica foarte bine' -> ['profesor', 'pozitiv']
+    OK: 'Laboratorul e prost organizat' -> ['laborator', 'negativ']
+    OK: 'Examenul a fost greu' -> ['examen', 'negativ']
+    OK: Empty text -> []
+    OK: None text -> []
+    OK: Text with diacritics -> ['profesor', 'curs', 'pozitiv']
+    OK: Whitespace only -> []
+  PASSED: categorize_text() — simple texts
+
+  Testing categorize_text() — multi-category texts...
+    OK: prof + curs + pozitiv -> ['profesor', 'curs', 'pozitiv']
+    OK: teme + laborator (sentiments dropped via conflict) -> ['laborator', 'teme']
+    OK: materiale + curs + pozitiv -> ['curs', 'materiale', 'pozitiv']
+    OK: asistent + examen + pozitiv -> ['asistent', 'examen', 'pozitiv']
+  PASSED: categorize_text() — multi-category texts
+
+  Testing categorize_text() — long realistic texts...
+    ...
+  PASSED: categorize_text() — long realistic texts
+
+  Testing negation and conflict detection...
+    OK: 'nu preda bine' -> [] (negation detected)
+    OK: 'Nu mi-a placut cursul deloc' -> [] (negation detected)
+    OK: 'Profesorul nu explica bine materia' -> [] (negation detected)
+    OK: Negation with diacritics -> [] (negation detected)
+    OK: 'numar' does NOT trigger negation -> ['teme', 'pozitiv']
+    OK: 'minunat' does NOT trigger negation -> ['curs', 'pozitiv']
+    OK: 'anunt' does NOT trigger negation -> ['examen', 'pozitiv']
+    OK: Conflict detected, sentiments dropped, topics kept -> ['curs', 'examen']
+    OK: Pure sentiment conflict -> [] (fully uncategorized)
+    OK: Single pozitiv sentiment works normally -> ['curs', 'pozitiv']
+    OK: Single negativ sentiment works normally -> ['laborator', 'negativ']
+    OK: categorize_all_texts integration -> 2 categorized, 2 uncategorized
+  PASSED: negation and conflict detection
 
   Testing categorize_all_texts()...
-    OK: All texts accounted for (categorized + uncategorized)
-    OK: Gibberish text is uncategorized
-    OK: Stats are correct -> {...}
+    ...
   PASSED: categorize_all_texts()
 
   Testing update_keywords()...
     OK: New words added successfully
     OK: No duplicates created
+    OK: New category created with words
+    OK: Multiple words added to multiple categories
     OK: Original DB restored
   PASSED: update_keywords()
 
   Testing analyze_with_gemini()...
-    OK: Response format is correct          # <-- only if .env has API key
-  PASSED: analyze_with_gemini()
+    SKIPPED: GEMINI_API_KEY not set in environment    # <-- normal without API key
 
   Testing full flow...
+    Local: 3 categorized, 3 uncategorized
+    SKIPPED Gemini step: no API key
   PASSED: full flow
 
 All tests passed (or skipped).
